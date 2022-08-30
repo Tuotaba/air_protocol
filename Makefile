@@ -1,6 +1,7 @@
 c_compiler := gcc
 linker := gcc
 linker_options :=
+libraries := 
 library_paths := 
 user_cflags :=
 
