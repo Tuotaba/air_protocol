@@ -1,0 +1,95 @@
+#include "air_protocol.h"
+#include "fifo_buffer.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+#define MAX_BUFFER_LEN	256
+static uint8_t pUartData[MAX_BUFFER_LEN];
+static buffer_list_t UartBuf;
+
+static uint8_t air_buffer[MAX_BUFFER_LEN];
+
+typedef struct
+{	
+	uint32_t calories;
+	uint32_t speed;
+	uint32_t distance;
+	uint32_t time;
+}_sport_data_t;
+
+#define CMD_SPORT_DATA	0x10
+
+void send_uart(uint8_t cmd,uint8_t *buf,uint16_t len)
+{
+	air_result_t result;
+	air_ret_t ret;
+	
+	ret = air_alloc_pack(cmd,buf,len,&result);
+	if(ret == AIR_FAIL)
+		return;	
+	buffer_append(&UartBuf,result.pdata,result.len);	
+	free(result.pdata);
+}
+
+static void command_handler(uint8_t cmd,uint8_t *buf,uint16_t len)
+{
+	_sport_data_t *p_sport_data;
+	
+	switch(cmd)
+	{
+		case CMD_SPORT_DATA:
+			p_sport_data = (_sport_data_t *)buf;
+			printf("calories : %d\n",p_sport_data->calories);
+			printf("speed : %d\n",p_sport_data->speed);
+			printf("distance : %d\n",p_sport_data->distance);
+			printf("time : %d\n",p_sport_data->time);
+		break;
+		default:break;
+	}
+}
+
+void uart_data_parser(void)
+{
+	air_result_t result;
+	air_ret_t ret;
+	air_header_t air_header;
+	uint8_t *pdata;
+	int i,len;
+	
+	air_header.tag = AIR_TAG;
+	i = buffer_find(&UartBuf,(uint8_t *)&air_header.tag,sizeof(air_header.tag));
+	if(i >= 0)
+	{
+		if(i>0)
+			buffer_pop(&UartBuf,NULL,i);
+		if(get_data_length(&UartBuf) > AIR_HEADER_LEN)
+		{
+			pdata = (uint8_t *)&air_header;
+			for(i=0;i<AIR_HEADER_LEN;i++)
+				pdata[i] = buffer_get(&UartBuf,i);
+			len = (AIR_HEADER_LEN+air_header.len+1);
+			if(get_data_length(&UartBuf) >= len)
+			{
+				buffer_pop(&UartBuf,air_buffer,len);
+				ret = air_data_parser(air_buffer,len,&result);
+				if(ret == AIR_SUCCESS)
+				{
+					command_handler(result.cmd,result.pdata,result.len);
+				}
+			}
+		}
+	}
+}
+
+int main()
+{		
+	int i,len;
+	
+	_sport_data_t data = {322,23,1000,30};	
+	
+	buffer_init(&UartBuf,pUartData,MAX_BUFFER_LEN);
+	
+	send_uart(CMD_SPORT_DATA,(uint8_t*)&data,sizeof(_sport_data_t));
+	uart_data_parser();
+	return 0;
+}
